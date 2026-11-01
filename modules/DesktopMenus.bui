@@ -1,0 +1,317 @@
+' Shared menu construction and native responder actions for desktop windows.
+Public Function DesktopPrimaryShortcut(key As String) As String
+    #If TargetMac Then
+        Return "Cmd+" + key
+    #Else
+        Return "Ctrl+" + key
+    #End If
+End Function
+
+Public Function AddMenuCommand(menu As Menu, caption As String, tag As String, shortcut As String = "") As MenuItem
+    If menu = Nil Then Throw New InvalidArgumentException("Menu is required")
+    If tag = "" Then Throw New InvalidArgumentException("Command tag is required")
+    Dim item As New MenuItem()
+    item.Caption = caption
+    item.Tag = tag
+    item.Shortcut = shortcut
+    menu.AddItem(item)
+    Return item
+End Function
+
+
+#If TargetMac Then
+    Private Declare Function ObjClass Lib "objc" Alias "objc_getClass" (name As String) As Ptr
+    Private Declare Function ActionSelector Lib "objc" Alias "sel_registerName" (name As String) As Ptr
+    Private Declare Function SendObject Lib "objc" Alias "objc_msgSend" (target As Ptr, action As Ptr) As Ptr
+    Private Declare Function SendAction Lib "objc" Alias "objc_msgSend" (target As Ptr, action As Ptr, command As Ptr, receiver As Ptr, sender As Ptr) As UInt8
+    Private Declare Function CocoaString Lib "Foundation" Selector "stringWithUTF8String:" (cls As Ptr, text As String) As Ptr
+    Private Declare Function CocoaItem Lib "AppKit" Selector "itemWithTitle:" (menu As Ptr, title As Ptr) As Ptr
+    Private Declare Function CocoaCount Lib "AppKit" Selector "numberOfItems" (menu As Ptr) As Integer
+    Private Declare Function CocoaItemAt Lib "AppKit" Selector "itemAtIndex:" (menu As Ptr, index As Integer) As Ptr
+    Private Declare Function CocoaInitMenu Lib "AppKit" Selector "initWithTitle:" (menu As Ptr, title As Ptr) As Ptr
+    Private Declare Function CocoaInitItem Lib "AppKit" Selector "initWithTitle:action:keyEquivalent:" (item As Ptr, title As Ptr, action As Ptr, key As Ptr) As Ptr
+    Private Declare Sub CocoaSubmenu Lib "AppKit" Selector "setSubmenu:" (item As Ptr, submenu As Ptr)
+    Private Declare Sub CocoaAddItem Lib "AppKit" Selector "insertItem:atIndex:" (menu As Ptr, item As Ptr, index As Integer)
+    Private Declare Sub CocoaServices Lib "AppKit" Selector "setServicesMenu:" (app As Ptr, menu As Ptr)
+    Private Declare Sub CocoaHelp Lib "AppKit" Selector "setHelpMenu:" (app As Ptr, menu As Ptr)
+    Private Declare Sub CocoaWindows Lib "AppKit" Selector "setWindowsMenu:" (app As Ptr, menu As Ptr)
+    Private Declare Sub CocoaRelease Lib "Foundation" Selector "release" (object As Ptr)
+    Private Declare Sub CocoaSetTitle Lib "AppKit" Selector "setTitle:" (menu As Ptr, title As Ptr)
+    Private Declare Function CocoaTitle Lib "AppKit" Selector "title" (menu As Ptr) As Ptr
+    Private Declare Function CocoaUTF8 Lib "Foundation" Selector "UTF8String" (text As Ptr) As String
+    Private Declare Sub SendWindowAction Lib "objc" Alias "objc_msgSend" (target As Ptr, action As Ptr, sender As Ptr)
+#ElseIf TargetWindows Then
+    Private Declare Function FocusedWidget Lib "user32" Alias "GetFocus" () As Ptr
+    Private Declare Function SendMessage Lib "user32" Alias "SendMessageW" (target As Ptr, message As UInt32, wparam As Integer, lparam As Integer) As Integer
+    Private Declare Function ShowNativeWindow Lib "user32" Alias "ShowWindow" (window As Ptr, command As Int32) As Int32
+    Private Declare Function IsZoomed Lib "user32" (window As Ptr) As Int32
+#ElseIf TargetLinux Then
+    Private Declare Function RootFocus Lib "libgtk-4.so.1" Alias "gtk_root_get_focus" (root As Ptr) As Ptr
+    Private Declare Function ActivateAction Lib "libgtk-4.so.1" Alias "gtk_widget_activate_action_variant" (widget As Ptr, action As String, arguments As Ptr) As Int32
+    Private Declare Sub MinimizeWindow Lib "libgtk-4.so.1" Alias "gtk_window_minimize" (window As Ptr)
+    Private Declare Sub MaximizeWindow Lib "libgtk-4.so.1" Alias "gtk_window_maximize" (window As Ptr)
+    Private Declare Sub RestoreWindow Lib "libgtk-4.so.1" Alias "gtk_window_unmaximize" (window As Ptr)
+    Private Declare Function IsMaximized Lib "libgtk-4.so.1" Alias "gtk_window_is_maximized" (window As Ptr) As Int32
+#End If
+
+Public Function PerformNativeEdit(window As Window, command As String) As Boolean
+    If window = Nil Then Return False
+    Select Case command
+        Case "undo", "redo", "cut", "copy", "paste", "select-all"
+        Case Else
+            Return False
+    End Select
+    #If TargetMac Then
+        Dim action As String = command + ":"
+        If command = "select-all" Then action = "selectAll:"
+        Dim app As Ptr = SendObject(ObjClass("NSApplication"), ActionSelector("sharedApplication"))
+        Return SendAction(app, ActionSelector("sendAction:to:from:"), ActionSelector(action), Nil, Nil) <> 0
+    #ElseIf TargetWindows Then
+        Dim focus As Ptr = FocusedWidget()
+        If focus = Nil Then Return False
+        Select Case command
+            Case "undo"
+                SendMessage(focus, 772, 0, 0)
+            Case "redo"
+                SendMessage(focus, 1108, 0, 0)
+            Case "cut"
+                SendMessage(focus, 768, 0, 0)
+            Case "copy"
+                SendMessage(focus, 769, 0, 0)
+            Case "paste"
+                SendMessage(focus, 770, 0, 0)
+            Case "select-all"
+                SendMessage(focus, 177, 0, -1)
+            Case Else
+                Return False
+        End Select
+        Return True
+    #ElseIf TargetLinux Then
+        Dim focus As Ptr = RootFocus(window.NativeWidget)
+        If focus = Nil Then Return False
+        Dim action As String = "clipboard." + command
+        If command = "undo" Or command = "redo" Then action = "text." + command
+        If command = "select-all" Then action = "selection.select-all"
+        Return ActivateAction(focus, action, Nil) <> 0
+    #End If
+End Function
+
+Public Function PerformDesktopCommand(window As Window, command As String) As Boolean
+    If window = Nil And command <> "quit" Then Return False
+    Select Case command
+        Case "close"
+            window.Close()
+        Case "quit"
+            Application.Quit()
+        Case "undo", "redo", "cut", "copy", "paste", "select-all"
+            Return PerformNativeEdit(window, command)
+        Case "minimize", "zoom"
+            #If TargetMac Then
+                If command = "minimize" Then
+                    SendWindowAction(window.NativeWidget, ActionSelector("performMiniaturize:"), Nil)
+                Else
+                    SendWindowAction(window.NativeWidget, ActionSelector("performZoom:"), Nil)
+                End If
+            #ElseIf TargetWindows Then
+                Dim state As Int32 = 6
+                If command = "zoom" Then
+                    state = 3
+                    If IsZoomed(window.NativeWidget) <> 0 Then state = 9
+                End If
+                ShowNativeWindow(window.NativeWidget, state)
+            #ElseIf TargetLinux Then
+                If command = "minimize" Then
+                    MinimizeWindow(window.NativeWidget)
+                ElseIf IsMaximized(window.NativeWidget) <> 0 Then
+                    RestoreWindow(window.NativeWidget)
+                Else
+                    MaximizeWindow(window.NativeWidget)
+                End If
+            #End If
+        Case "bring-all"
+            #If TargetMac Then
+                Dim app As Ptr = SendObject(ObjClass("NSApplication"), ActionSelector("sharedApplication"))
+                SendWindowAction(app, ActionSelector("arrangeInFront:"), Nil)
+            #Else
+                For Each openWindow As Window In Application.Windows
+                    openWindow.Show()
+                Next
+            #End If
+        Case Else
+            Return False
+    End Select
+    Return True
+End Function
+
+#If TargetMac Then
+    ' Buoy installs a window's NSMenu from its own key-window observer, which runs after
+    ' Activated. Register once more on the next default-mode turn, never during tracking.
+    ' Do not Timer.Start the same one-shot from NotifyTick: that is a use-after-free.
+    Private Class MacMenuRegistration Inherits Timer
+        Public Overrides Sub NotifyTick()
+            Me.Stop()
+            ApplyMacSystemMenus()
+        End Sub
+    End Class
+
+    Private Class MacMenuState
+        Public Shared Property Pending As MacMenuRegistration = Nil
+        Public Shared Property Busy As Boolean = False
+        Public Shared Property Retrigger As Boolean = False
+    End Class
+
+    Private Function CocoaMenuTitled(menu As Ptr, expected As String) As Boolean
+        If menu = Nil Then Return False
+        Dim current As Ptr = CocoaTitle(menu)
+        If current = Nil Then Return False
+        Return CocoaUTF8(current) = expected
+    End Function
+
+    Private Sub ApplyMacSystemMenus()
+        If MacMenuState.Busy Then
+            MacMenuState.Retrigger = True
+            Return
+        End If
+        MacMenuState.Busy = True
+        Try
+            Dim passes As Integer = 0
+            Do
+                MacMenuState.Retrigger = False
+                RegisterMacSystemMenus()
+                passes = passes + 1
+            Loop Until Not MacMenuState.Retrigger Or passes >= 4
+        Catch e As Exception
+            StdErr.WriteLine("Menu registration: " + e.Message)
+        Finally
+            MacMenuState.Busy = False
+        End Try
+    End Sub
+
+    Private Sub ScheduleMacMenuRegistration()
+        If MacMenuState.Busy Then
+            MacMenuState.Retrigger = True
+            Return
+        End If
+        If MacMenuState.Pending <> Nil Then MacMenuState.Pending.Stop()
+        Dim later As New MacMenuRegistration()
+        later.Period = 1
+        later.Count = 1
+        MacMenuState.Pending = later
+        later.Start()
+    End Sub
+
+    Private Sub RegisterMacSystemMenus()
+        Dim app As Ptr = SendObject(ObjClass("NSApplication"), ActionSelector("sharedApplication"))
+        Dim main As Ptr = SendObject(app, ActionSelector("mainMenu"))
+        If main = Nil Then Return
+        If CocoaCount(main) = 0 Then Return
+        Dim appItem As Ptr = CocoaItemAt(main, 0)
+        If appItem = Nil Then Return
+        Dim appMenu As Ptr = SendObject(appItem, ActionSelector("submenu"))
+        Dim title As Ptr = CocoaString(ObjClass("NSString"), "Services")
+        Dim servicesItem As Ptr = Nil
+        If appMenu <> Nil Then servicesItem = CocoaItem(appMenu, title)
+        If appMenu <> Nil And servicesItem = Nil Then
+            Dim services As Ptr = CocoaInitMenu(SendObject(ObjClass("NSMenu"), ActionSelector("alloc")), title)
+            Dim item As Ptr = CocoaInitItem(SendObject(ObjClass("NSMenuItem"), ActionSelector("alloc")), title, Nil, CocoaString(ObjClass("NSString"), ""))
+            CocoaSubmenu(item, services)
+            Dim insertion As Integer = CocoaCount(appMenu)
+            If insertion > 2 Then insertion = 2
+            CocoaAddItem(appMenu, item, insertion)
+            CocoaServices(app, services)
+            CocoaRelease(item)
+            CocoaRelease(services)
+        ElseIf servicesItem <> Nil Then
+            Dim services As Ptr = SendObject(servicesItem, ActionSelector("submenu"))
+            If services <> Nil And SendObject(app, ActionSelector("servicesMenu")) <> services Then CocoaServices(app, services)
+        End If
+        ' AppKit suppresses Help search when helpMenu is not in the visible menu bar.
+        Dim helpTitle As Ptr = CocoaString(ObjClass("NSString"), "Help")
+        Dim help As Ptr = CocoaItem(main, helpTitle)
+        If help <> Nil Then
+            Dim helpMenu As Ptr = SendObject(help, ActionSelector("submenu"))
+            If helpMenu <> Nil Then
+                If Not CocoaMenuTitled(helpMenu, "Help") Then CocoaSetTitle(helpMenu, helpTitle)
+                If SendObject(app, ActionSelector("helpMenu")) <> helpMenu Then CocoaHelp(app, helpMenu)
+            End If
+        End If
+        Dim windowTitle As Ptr = CocoaString(ObjClass("NSString"), "Window")
+        Dim windows As Ptr = CocoaItem(main, windowTitle)
+        If windows <> Nil Then
+            Dim windowMenu As Ptr = SendObject(windows, ActionSelector("submenu"))
+            If windowMenu <> Nil Then
+                If Not CocoaMenuTitled(windowMenu, "Window") Then CocoaSetTitle(windowMenu, windowTitle)
+                If SendObject(app, ActionSelector("windowsMenu")) <> windowMenu Then CocoaWindows(app, windowMenu)
+            End If
+        End If
+    End Sub
+#End If
+
+''' When False, RegisterSystemMenus is a no-op. Studio turns this off for --self-test.
+Public Class DesktopMenuState
+    Public Shared Property RegisterEnabled As Boolean = True
+End Class
+
+' Register the system menus, including macOS Help search, for the active menu bar.
+Public Sub RegisterSystemMenus()
+    If Not DesktopMenuState.RegisterEnabled Then Return
+    #If TargetMac Then
+        ApplyMacSystemMenus()
+        ScheduleMacMenuRegistration()
+    #End If
+End Sub
+
+Public Sub UpdateNativeEditingCommands(window As Window)
+    If window = Nil Then Return
+    If window.MenuBar = Nil Then Return
+    #If TargetWindows Then
+        ' Standard Win32 EDIT has no redo queue; RichEdit does. Do not offer a dead command.
+        Dim focus As Ptr = FocusedWidget()
+        Dim redo As MenuItem = window.MenuBar.FindMenuByTag("redo")
+        If redo <> Nil Then
+            redo.Enabled = False
+            If focus <> Nil Then redo.Enabled = SendMessage(focus, 1109, 0, 0) <> 0
+        End If
+    #End If
+End Sub
+
+''' Build a fresh bar for each window; app-specific commands can be appended before attachment.
+Public Function StandardDesktopMenuBar() As MenuBar
+    Dim bar As New MenuBar()
+    Dim file As New Menu()
+    AddMenuCommand(file, "Close Window", "close", DesktopPrimaryShortcut("W"))
+    #If TargetWindows Then
+        AddMenuCommand(file, "Exit", "quit")
+    #ElseIf TargetLinux Then
+        AddMenuCommand(file, "Quit", "quit", DesktopPrimaryShortcut("Q"))
+    #End If
+    bar.AddMenu(file, "File")
+    bar.AddMenu(StandardEditMenu(), "Edit")
+    bar.AddMenu(StandardWindowMenu(), "Window")
+    Return bar
+End Function
+
+Public Function StandardEditMenu() As Menu
+    Dim menu As New Menu()
+    AddMenuCommand(menu, "Undo", "undo", DesktopPrimaryShortcut("Z"))
+    #If TargetWindows Then
+        AddMenuCommand(menu, "Redo", "redo", DesktopPrimaryShortcut("Y"))
+    #Else
+        AddMenuCommand(menu, "Redo", "redo", DesktopPrimaryShortcut("Shift+Z"))
+    #End If
+    menu.AddSeparator()
+    AddMenuCommand(menu, "Cut", "cut", DesktopPrimaryShortcut("X"))
+    AddMenuCommand(menu, "Copy", "copy", DesktopPrimaryShortcut("C"))
+    AddMenuCommand(menu, "Paste", "paste", DesktopPrimaryShortcut("V"))
+    AddMenuCommand(menu, "Select All", "select-all", DesktopPrimaryShortcut("A"))
+    Return menu
+End Function
+
+Public Function StandardWindowMenu() As Menu
+    Dim menu As New Menu()
+    AddMenuCommand(menu, "Minimize", "minimize", DesktopPrimaryShortcut("M"))
+    AddMenuCommand(menu, "Zoom / Restore", "zoom")
+    menu.AddSeparator()
+    AddMenuCommand(menu, "Bring All to Front", "bring-all")
+    Return menu
+End Function
