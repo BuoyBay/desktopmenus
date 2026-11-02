@@ -35,9 +35,3 @@ Native editing uses AppKit's responder chain, Win32 edit messages and GTK text
 actions. Actual editing capabilities depend on the focused control; ordinary
 Win32 EDIT has no redo queue, while RichEdit does. WebView editing on Windows/Linux
 is not guaranteed. The package does not override Alt+F4 or global OS shortcuts.
-
-## Verification
-
-
-Maintainers run the private validation suite before release. See the repository README for public build instructions.
-
