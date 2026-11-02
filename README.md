@@ -1,4 +1,4 @@
-# Build native menus, shortcuts and window commands
+# Native menus, shortcuts, window commands
 
 Reusable desktop menu construction and native command dispatch, extracted from the
 Calls app without any Calls, CouchDB or scraping dependencies. Install the sealed
