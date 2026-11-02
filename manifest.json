@@ -2,7 +2,7 @@
     "schema": 1,
     "name": "desktopmenus",
     "version": "0.1.0",
-    "description": "Native menus, shortcuts, window commands",
+    "description": "Native menus and shortcuts",
     "platforms": [
         "arm64-apple-macos",
         "x86_64-apple-macos",
